@@ -1,0 +1,294 @@
+//interactive scroll - by Gil Sperling 2019
+//using the Processing serial and video libraries and example code
+
+import processing.video.*;
+import processing.serial.*;     // import the Processing serial library
+
+Serial myPort;                  // The serial port
+ 
+  
+ PImage img;      // The scroll image
+ PImage text;     // The english translation
+ PImage progBar;  //top progress bar
+ PImage slide;    //background info slide for 
+ PGraphics maskshape;
+ PFont font;
+  
+String myString;     // Data received from the serial port
+String stringTrimmed;
+int val=0;
+
+int oldRight=0;
+int oldLeft=0;
+int left=0;
+int right=0;
+
+int minX=1280;
+int maxX=0;
+int minY=800;
+int maxY=0;
+float b;
+int rangeMin=-8780;
+int rangeMax=0;
+float pos=rangeMin;
+float position=rangeMin;
+float pos1sec=rangeMin;
+int time=0;
+int interval=2000;
+
+int op=0;
+String book1 = "THE HEBREW BIBLE";
+String book2 = "BOOK OF DEUTERONOMY";
+String [] chapters = {"Chapter 5","Chapter 10","Chapters 29-30","Chapters 31-32"};
+//not used, hard coded the text into the progress bar image
+//String [] sources = {"Source: The Dead Sea Scrolls","Source: The Cairo Geniza","Source: The Aleppo Codex"};
+//String [] dates = {"1st century BC","Middle Ages","around 930 AD"};
+int chIndex=0;
+int sourceIndex=0;
+boolean showBar=false;
+boolean masking=false;
+boolean notMoving=true;
+boolean rect=false;
+int barX=400;
+
+Capture video;
+
+// <1> Set the range of Brightness values for our filter
+int rangeLow = 80;
+int rangeHigh = 255;
+
+void setup()
+{
+  img = loadImage("deutscrollclean1215.jpg");
+  text = loadImage("deutenglish10k_800ACfont.jpg");
+  progBar = loadImage("scroll4progressbar.jpg");
+  slide = loadImage("Slide2.jpg");
+  String portName = Serial.list()[3]; //change the 0 to a 1 or 2 etc. to match your port
+  myPort = new Serial(this, portName, 9600);
+  String[] cameras = Capture.list();
+  printArray(cameras);
+//select the number corrseponding to "USB 2.0 Camera, size=960x540, fps=15"
+video = new Capture(this, 1280, 800 ,cameras[19]);
+video.start();
+fullScreen(P2D, SPAN);
+rectMode(CENTER);
+strokeWeight(1);
+font = createFont("Copperplate", 18);
+// read incoming bytes to a buffer
+// until you get a linefeed (ASCII 10):
+myPort.bufferUntil('\n');
+
+}
+
+void draw(){
+  background(0);
+  
+//reset the pixel tracking values
+int minX=1280;
+int maxX=0;
+int minY=800;
+int maxY=0;
+ 
+// Read last captured frame
+ if (video.available()) {
+    video.read();
+ }
+  
+ 
+//camera image will be monochrome because of IR filter
+video.loadPixels();
+for (int x = 0; x < video.width; x++ ) {
+    for (int y = 0; y < video.height; y++ ) {
+      int loc = x + y * video.width;
+      // What is current pixel's brightness
+      color currentColor = video.pixels[loc];
+      b = brightness(currentColor);
+      // is it above the brightness threshhold
+      if(b>rangeLow) {
+  //find rectangle edges
+  if (x<minX) { 
+    minX=x; } else 
+    if (x>maxX) {
+     maxX=x;
+    }
+    if (y<minY) { 
+    minY=y; } else 
+    if (y>maxY) {
+     maxY=y;
+    }
+      }
+    }
+}
+
+ //display the scroll image based on the position deduced from the serial data
+  image(img, pos, 0,10000,800);
+  //image(slide, 1280, 0);
+  //set(1280, 0, video);
+ //fill(0,255,0);
+ //textSize(24);
+ // text("min X,Y",minX,minY);
+ //text("max X,Y",maxX,maxY);
+  
+ 
+     
+ //define the area under the magnifier frame, which will form the mask for the overlay
+ int maskWidth = floor(0.9*(maxX-minX));
+ int maskHeight = floor(0.9*(maxY-minY));
+ int maskX=minX+20;
+ int maskY=floor(map(minY,0,800,50,700));
+    
+  //draw a rectangle around the mask area to show on laptop screen, for debugging
+  if(rect){
+  strokeWeight(2);
+  noFill();
+  stroke(0,255,0);
+  rectMode(CORNER);
+  rect(maskX+1280,maskY,maskWidth,maskHeight);
+  }
+  
+  //create mask only when the reader is placed on the paper 
+  if(maskWidth>25 && maskWidth<video.width/2){
+  maskshape = createGraphics(10000,800);
+  pushMatrix();
+  scale(-1,1);
+  maskshape.beginDraw();
+  maskshape.rectMode(CENTER);
+for (float w=maskWidth+100;w>maskWidth; w-=1) {
+  int op=floor(map(w,maskWidth,maskWidth+125,255,0));
+  float h=w*maskHeight/maskWidth;
+  maskshape.stroke(op);
+  maskshape.noFill();
+  maskshape.rect((1280-(maskX+maskWidth/2))-pos,maskY+maskHeight/2,w,h);
+}
+maskshape.rectMode(CORNER);
+maskshape.noStroke();
+maskshape.fill(255);
+maskshape.rect((1280-maskX)-maskWidth-pos,maskY,maskWidth,maskHeight);
+maskshape.endDraw();
+popMatrix();
+  // apply mask
+ text.mask(maskshape);
+ image(text,pos,0,10000,800);
+ masking=true;
+  } 
+ else masking=false;
+
+//toggle between showing the progress bar and showing the full scroll, based on whether the scroll is being moved
+  if (millis()-time>interval) {
+  if (pos==pos1sec) {
+    notMoving=true;} else {
+    notMoving=false;
+    }
+pos1sec= pos;
+time=millis();
+//println(notMoving);
+}
+if(!notMoving){
+  showBar=true;} else {
+    if(notMoving && !masking) {
+  showBar=true;} else {
+  showBar=false;
+}
+  }
+ 
+  if(showBar){
+//draw progress bar
+stroke(127);
+strokeWeight(4);
+fill(0);
+rectMode(CORNER);
+rect(0,0,1280,74);
+image(progBar,barX,5,640,64);
+float posMapped=map(pos,0,-10000,0,640);
+strokeWeight(1);
+stroke(255,0,0);
+noFill();
+rect(barX+posMapped,8,102,64);
+
+//draw meta-text
+if(pos<-4700) {
+sourceIndex=0;
+chIndex=0;
+} else 
+if (pos<-4000) {
+ sourceIndex=1;
+ chIndex=1; } else 
+  if(pos<-2350) {
+  sourceIndex=1;
+  chIndex=2;
+} else {
+  sourceIndex=2;
+chIndex=3;
+  }
+//textSize(28);
+textFont(font);
+fill(255);
+text (book1,120,20);
+text (book2,120,40);
+text (chapters[chIndex],120,60);
+//text (sources[sourceIndex],990,30);
+//text (dates[sourceIndex],990,60);
+}
+
+
+  }
+  
+
+
+void serialEvent(Serial p) {
+  // if ( myPort.available() > 0) 
+  //{  // If data is available,
+  String myString = p.readStringUntil('\n');  // read it and store it in val 
+    if(myString!=null){
+  String[] sensors = splitTokens(myString, ", ");
+  
+  sensors[0]=trim(sensors[0]);
+  sensors[1]=trim(sensors[1]);
+  left = int(sensors[0]);
+  right = int(sensors[1]);
+ 
+  //if right scroller is moved counter-clockwise = paper is moved to the right,
+  //advance x position
+  if(right-oldRight>=1) {
+    pos+=(right-oldRight)*10;
+
+}
+  //if left scroller is moved clockwise = paper is moved to the left,
+  //decrease x position
+  if(oldLeft-left>=1) {
+    pos-=(oldLeft-left)*10;
+  }
+//constrain scrolling to the edges of the image
+if(pos<rangeMin) {
+  pos=rangeMin; } else 
+  if (pos>rangeMax) {
+    pos=rangeMax;
+  }
+  
+  println("left: ",left,"right: ",right);
+  println(pos);
+  oldLeft=left;
+  oldRight=right;
+    }
+
+}
+
+void keyPressed() {
+//manual toggle of the progress bar
+  if(key=='b' || key=='B') {
+   showBar=!showBar;
+ }
+ //toggle showing the reader frame
+ if(key=='r' || key=='R') {
+   rect=!rect;
+ }
+ //control brightness sensitivity
+  if(key=='z' || key=='Z') {
+   rangeLow-=10;
+   println(rangeLow);
+ }
+   if(key=='X' || key=='x') {
+   rangeLow+=10;
+   println(rangeLow);
+ }
+}
